@@ -22,6 +22,7 @@ void PhysicsSystem(entt::registry& registry);
 void AnimationSystem(entt::registry& registry);
 void RenderSystem(entt::registry& registry);
 void CameraSystem(Camera& camera, Vector3 targetPos, Vector2& cameraAngle, float& cameraDistance);
+void DebugRenderSystem(entt::registry& registry);
 
 
 int main(void)
@@ -83,6 +84,8 @@ int main(void)
     DisableCursor();
     SetTargetFPS(60);
 
+    bool debugMod = false;
+
     while (!WindowShouldClose())        // Detect window close button or ESC key
     {
         // --- UPDATE SYSTEMS ---
@@ -108,6 +111,9 @@ int main(void)
         else
             playerRender.currentAnimIndex = 2; // idle
 
+        if (IsKeyPressed(KEY_F3))
+            debugMod = !debugMod;
+
         AnimationSystem(registry);
 
         // --- DRAW ---
@@ -123,6 +129,8 @@ int main(void)
 
                 DrawCube({2.0f, 4.0f, 6.0f}, 4.0f, 0.6f, 4.0f, PINK);
 
+                if (debugMod == true)
+                    DebugRenderSystem(registry);
                 RenderSystem(registry);
 
             EndMode3D();
