@@ -6,230 +6,138 @@
 
 #include "raylib.h"
 #include "rcamera.h"
+#include "components/Components.hpp"
 
 #include <stddef.h>
 #include <math.h>
+#include <entt/entt.hpp>
 
 #define MAX_COLUMNS 20
 
-//------------------------------------------------------------------------------------
-// Program main entry point
-//------------------------------------------------------------------------------------
+#define SCREEN_WIDTH 800
+#define SCREEN_HEIGHT 450
+
+void ControlPlayerSystem(entt::registry& registry, float cameraAngleX);
+void PhysicsSystem(entt::registry& registry);
+void AnimationSystem(entt::registry& registry);
+void RenderSystem(entt::registry& registry);
+void CameraSystem(Camera& camera, Vector3 targetPos, Vector2& cameraAngle, float& cameraDistance);
+
+
 int main(void)
 {
     // Initialization
     //--------------------------------------------------------------------------------------
-    const int screenWidth = 800;
-    const int screenHeight = 450;
+    InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "Prototype Raylib 3D");
+    entt::registry registry;
 
-    InitWindow(screenWidth, screenHeight, "raylib [core] example - 3d camera first person");
+    // Init player
+    auto player = registry.create();
+    registry.emplace<PlayerTag>(player);
+    registry.emplace<TransformComponent>(player, (Vector3){ 5, 0, 0 }, 0.0f, 0.5f); //FIXME: change the start position
+    registry.emplace<Physics>(player, (Vector3){ 0, 0, 0}, true);
 
-    // Define the camera to look into our 3d world (position, target, up vector)
+    Model robotModel = LoadModel("assets/robot.glb");
+    int animsCount = 0;
+    ModelAnimation *modelAnimations = LoadModelAnimations("assets/robot.glb", &animsCount);
+    registry.emplace<ModelRenderer>(player, robotModel, modelAnimations, animsCount, 2, 0);
+
+    // Init Obstacles
+    auto createObstacle = [&](Vector3 pos, Vector3 size) {
+        auto entity = registry.create();
+        BoundingBox box = {
+            { pos.x - size.x/2, pos.y - size.y/2, pos.z - size.z/2 },
+            { pos.x + size.x/2, pos.y + size.y/2, pos.z + size.z/2 }
+        };
+        registry.emplace<ObstacleTag>(entity, box);
+        return entity;
+    };
+
+    // Walls
+    createObstacle({-16.0f, 2.5f, 0.0f}, {1.0f, 5.0f, 32.0f}); // blue wall
+    createObstacle({16.0f, 2.5f, 0.0f}, {1.0f, 5.0f, 32.0f});  // green wall
+    createObstacle({0.0f, 2.5f, 16.0f}, {32.0f, 5.0f, 1.0f}); // yellow wall
+
+    // floor TODO: temporary, need to update the map
+    createObstacle({ 0.0f, -0.5f, 0.0f }, { 100.0f, 1.0f, 100.0f });
+
+    // Red platform
+    Vector3 platPos = {2.0f, 1.8f, 2.0f};
+    Vector3 platSize = {4.0f, 0.6f, 4.0f};
+    createObstacle(platPos, platSize);
+
+    createObstacle({2.0f, 4.0f, 6.0f}, {4.0f, 0.6f, 4.0f}); // yellow wall
+
+
+    // --- CAMERA ---
     Camera camera = { 0 };
     camera.up = (Vector3){ 0.0f, 1.0f, 0.0f };          // Camera up vector (rotation towards target)
     camera.fovy = 80.0f;                                // Camera field-of-view Y
     camera.projection = CAMERA_PERSPECTIVE;             // Camera projection type
 
-    int cameraMode = CAMERA_CUSTOM;
-
     Vector2 cameraAngle = { 0.0f, 0.0f }; // x = horizontal, y = vertical
     float cameraDistance = 5.0f;          // Distance au robot
 
+    int cameraMode = CAMERA_CUSTOM;
 
-    // load gltf model
-    Model model = LoadModel("assets/robot.glb");
-    int animsCount = 0;
-    ModelAnimation *modelAnimations = LoadModelAnimations("assets/robot.glb", &animsCount);
+    DisableCursor();
+    SetTargetFPS(60);
 
-    unsigned int animIndex = 2; // 4 for IDLE animation
-    unsigned int animCurrentFrame = 0;
-    ModelAnimation anim;
-
-    Vector3 playerPos = {0.0f, 0.0f, 0.0f};
-    float playerSpeed = 0.1f;
-    float playerRotation = 0.0f;
-
-
-    BoundingBox walls[4];
-    walls[0] = (BoundingBox){ {-16.5f, 0.0f, -16.0f}, {-15.5f, 5.0f, 16.0f} }; // Mur bleu
-    walls[1] = (BoundingBox){ {15.5f, 0.0f, -16.0f}, {16.5f, 5.0f, 16.0f} };  // Mur vert
-    walls[2] = (BoundingBox){ {-16.0f, 0.0f, 15.5f}, {16.0f, 5.0f, 16.5f} };  // Mur jaune
-
-
-    Vector3 platPos = {2.0f, 1.8f, 2.0f};
-    Vector3 platSize = {4.0f, 0.6f, 4.0f};
-
-    walls[3] = (BoundingBox){
-        { platPos.x - platSize.x/2, platPos.y - platSize.y/2, platPos.z - platSize.z/2 },
-        { platPos.x + platSize.x/2, platPos.y + platSize.y/2, platPos.z + platSize.z/2 }
-    };       // Platform (un peu plus épaisse)
-
-
-    // JUMP MECANIC
-    float playerVelocityY = 0.0f;
-    bool isGrounded = true;
-    const float gravity = -0.015f;
-    const float jumpForce = 0.3f;
-
-
-    DisableCursor();                    // Limit cursor to relative movement inside the window
-
-    SetTargetFPS(60);                   // Set our game to run at 60 frames-per-second
-    //--------------------------------------------------------------------------------------
-
-    // Main game loop
     while (!WindowShouldClose())        // Detect window close button or ESC key
     {
-        // UPDATE
-        // get mouse movements
-        Vector2 mouseDelta = GetMouseDelta();
+        // --- UPDATE SYSTEMS ---
 
-        cameraAngle.x -= mouseDelta.x * 0.003f;
-        cameraAngle.y -= mouseDelta.y * 0.003f;
+        // player control
+        ControlPlayerSystem(registry, cameraAngle.x);
 
-        if (cameraAngle.y > 1.2f) cameraAngle.y = 1.2f;
-        if (cameraAngle.y < 0.3f) cameraAngle.y = 0.3f;
+        // physics -> velocity, gravity, collisions
+        PhysicsSystem(registry);
 
-        cameraDistance -= GetMouseWheelMove() * 0.5f;
-        if (cameraDistance < 3.0f) cameraDistance = 3.0f;
-        if (cameraDistance > 10.0f) cameraDistance = 10.0f;
+        // the camera follow the player
+        auto& playerTransform = registry.get<TransformComponent>(player);
+        CameraSystem(camera, playerTransform.pos, cameraAngle, cameraDistance);
 
-        // handling player inputs && movements
-        Vector3 movement = {0.0f, 0.0f, 0.0f};
-        bool isMoving = false;
-        bool isRunning = IsKeyDown(KEY_LEFT_SHIFT);
+        // logic animation TODO: set into a StateSystem
+        auto& playerPhys = registry.get<Physics>(player);
+        auto& playerRender = registry.get<ModelRenderer>(player);
 
-        if (IsKeyDown(KEY_W)) { movement.x += -sinf(cameraAngle.x); movement.z += -cosf(cameraAngle.x); isMoving = true; }
-        if (IsKeyDown(KEY_S)) { movement.x +=  sinf(cameraAngle.x); movement.z +=  cosf(cameraAngle.x); isMoving = true; }
-        if (IsKeyDown(KEY_A)) { movement.x +=  sinf(cameraAngle.x - PI/2.0f); movement.z +=  cosf(cameraAngle.x - PI/2.0f); isMoving = true; }
-        if (IsKeyDown(KEY_D)) { movement.x +=  sinf(cameraAngle.x + PI/2.0f); movement.z +=  cosf(cameraAngle.x + PI/2.0f); isMoving = true; }
+        if (!playerPhys.isGrounded)
+            playerRender.currentAnimIndex = 3; // Jump
+        else if (playerPhys.velocity.x != 0 || playerPhys.velocity.z != 0)
+            playerRender.currentAnimIndex = IsKeyDown(KEY_LEFT_SHIFT) ? 6 : 10; // 6 for Run anim, 10 for walk TODO: set defines for animations
+        else
+            playerRender.currentAnimIndex = 2; // idle
 
-        // JUMP HANDLING
-        if (isGrounded && IsKeyPressed(KEY_SPACE)) {
-            playerVelocityY = jumpForce;
-            isGrounded = false;
-        }
+        AnimationSystem(registry);
 
-        // Apply gravity and Y movement
-        playerVelocityY += gravity;
-        playerPos.y += playerVelocityY;
-
-        // GROUND & PLATFORM COLLISIONS (Vertical)
-        isGrounded = false;
-        
-        // Floor check
-        if (playerPos.y <= 0.0f) {
-            playerPos.y = 0.0f;
-            playerVelocityY = 0.0f;
-            isGrounded = true;
-        }
-
-        // Box collision check (Vertical)
-        BoundingBox playerBox = {
-            { playerPos.x - 0.4f, playerPos.y, playerPos.z - 0.4f },
-            { playerPos.x + 0.4f, playerPos.y + 2.0f, playerPos.z + 0.4f }
-        };
-
-        for (int i = 0; i < 4; i++) {
-            if (CheckCollisionBoxes(playerBox, walls[i])) {
-                // Si on est en train de tomber et que nos pieds touchent le haut de la box
-                if (playerVelocityY < 0.0f && playerPos.y >= walls[i].max.y - 0.5f) {
-                    playerPos.y = walls[i].max.y;
-                    playerVelocityY = 0.0f;
-                    isGrounded = true;
-                }
-            }
-        }
-
-        // HORIZONTAL MOVEMENT WITH COLLISIONS
-        if (isMoving) {
-            float magnitude = sqrtf(movement.x * movement.x + movement.z * movement.z);
-            float currentSpeed = isRunning ? 0.2f : 0.1f;
-            movement.x = (movement.x / magnitude) * currentSpeed;
-            movement.z = (movement.z / magnitude) * currentSpeed;
-
-            // TEST X
-            Vector3 nextPosX = playerPos;
-            nextPosX.x += movement.x;
-            BoundingBox boxX = {
-                { nextPosX.x - 0.4f, playerPos.y, playerPos.z - 0.4f },
-                { nextPosX.x + 0.4f, playerPos.y + 2.0f, playerPos.z + 0.4f }
-            };
-            bool colX = false;
-            for(int i = 0; i < 4; i++) 
-                if (CheckCollisionBoxes(boxX, walls[i]) && playerPos.y < walls[i].max.y - 0.2f) colX = true;
-            if (!colX) playerPos.x = nextPosX.x;
-
-            // TEST Z
-            Vector3 nextPosZ = playerPos;
-            nextPosZ.z += movement.z;
-            BoundingBox boxZ = {
-                { playerPos.x - 0.4f, playerPos.y, nextPosZ.z - 0.4f },
-                { playerPos.x + 0.4f, playerPos.y + 2.0f, nextPosZ.z + 0.4f }
-            };
-            bool colZ = false;
-            for(int i = 0; i < 4; i++) 
-                if (CheckCollisionBoxes(boxZ, walls[i]) && playerPos.y < walls[i].max.y - 0.2f) colZ = true;
-            if (!colZ) playerPos.z = nextPosZ.z;
-
-            playerRotation = atan2f(movement.x, movement.z) * RAD2DEG;
-        }
-
-        // ANIMATION SELECTION
-        if (!isGrounded) animIndex = 3; 
-        else if (isMoving) animIndex = isRunning ? 6 : 10;
-        else animIndex = 2;
-
-
-        // CAMERA
-        camera.target = playerPos;
-        float eyeHeight = 1.5f;
-        
-        camera.position.x = playerPos.x + cameraDistance * cosf(cameraAngle.y) * sinf(cameraAngle.x);
-        camera.position.y = (playerPos.y + eyeHeight) + cameraDistance * sinf(cameraAngle.y);
-        camera.position.z = playerPos.z + cameraDistance * cosf(cameraAngle.y) * cosf(cameraAngle.x);
-        
-        camera.target.y += eyeHeight;
-
-        UpdateCamera(&camera, cameraMode);
-
-        // Update model Animation
-        if (modelAnimations != NULL) {
-            anim = modelAnimations[animIndex];
-            animCurrentFrame = (animCurrentFrame + 1) % anim.frameCount;
-            UpdateModelAnimation(model, anim, animCurrentFrame);
-        }
-
-        //----------------------------------------------------------------------------------
-
-        // Draw
-        //----------------------------------------------------------------------------------
+        // --- DRAW ---
         BeginDrawing();
-
             ClearBackground(RAYWHITE);
-
             BeginMode3D(camera);
 
-                DrawPlane((Vector3){ 0.0f, 0.0f, 0.0f }, (Vector2){ 32.0f, 32.0f }, LIGHTGRAY); // Draw ground
+                DrawPlane((Vector3){ 0.0f, 0.0f, 0.0f }, (Vector2){ 100.0f, 100.0f }, LIGHTGRAY); // Draw ground
                 DrawCube((Vector3){ -16.0f, 2.5f, 0.0f }, 1.0f, 5.0f, 32.0f, BLUE);     // Draw a blue wall
                 DrawCube((Vector3){ 16.0f, 2.5f, 0.0f }, 1.0f, 5.0f, 32.0f, LIME);      // Draw a green wall
                 DrawCube((Vector3){ 0.0f, 2.5f, 16.0f }, 32.0f, 5.0f, 1.0f, GOLD);      // Draw a yellow wall
-
                 DrawCube(platPos, platSize.x, platSize.y, platSize.z, RED);
 
-                DrawModelEx(model, playerPos, (Vector3){ 0, 1, 0 }, playerRotation, (Vector3){ 0.5f, 0.5f, 0.5f }, WHITE);
+                DrawCube({2.0f, 4.0f, 6.0f}, 4.0f, 0.6f, 4.0f, PINK);
+
+                RenderSystem(registry);
 
             EndMode3D();
 
-            DrawText(TextFormat("Animation: %s", anim.name), 10, GetScreenHeight() - 20, 10, DARKGRAY);
-            DrawText(TextFormat("Grounded: %s", isGrounded ? "YES" : "NO"), 10, GetScreenHeight() - 40, 10, DARKGRAY);
+            DrawFPS(10, 10);
+            DrawText(TextFormat("Animation: %s", playerRender.modelAnim->name), 10, GetScreenHeight() - 20, 10, DARKGRAY);
+            DrawText(TextFormat("Grounded: %s", playerPhys.isGrounded ? "YES" : "NO"), 10, GetScreenHeight() - 40, 10, DARKGRAY);
+            DrawText("ECS Engine - EnTT + Raylib", 10, SCREEN_HEIGHT - 60, 10, DARKGRAY);
 
         EndDrawing();
     }
 
     // De-Initialization
     UnloadModelAnimations(modelAnimations, animsCount);
-    UnloadModel(model);
+    UnloadModel(robotModel);
     CloseWindow();
 
     return 0;
