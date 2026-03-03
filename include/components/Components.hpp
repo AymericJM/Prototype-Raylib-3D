@@ -59,6 +59,8 @@ struct ModelRenderer
     int animsCount;
     int currentAnimIndex;
     int currentAnimFrame;
+
+    bool loop;
 };
 
 
