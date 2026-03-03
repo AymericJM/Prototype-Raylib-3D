@@ -16,7 +16,14 @@ void AnimationSystem(entt::registry& registry)
 
         if (renderer.animsCount > 0) {
             ModelAnimation anim = renderer.modelAnim[renderer.currentAnimIndex];
-            renderer.currentAnimFrame = (renderer.currentAnimFrame + 1) % anim.frameCount;
+
+            if (renderer.loop || renderer.currentAnimFrame < anim.frameCount - 1) {
+                renderer.currentAnimFrame++;
+
+                if (renderer.loop && renderer.currentAnimFrame >= anim.frameCount)
+                    renderer.currentAnimFrame = 0;
+            }
+
             UpdateModelAnimation(renderer.model, anim, renderer.currentAnimFrame);
         }
     }

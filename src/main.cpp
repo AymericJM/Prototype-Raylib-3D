@@ -24,6 +24,7 @@ void RenderSystem(entt::registry& registry);
 void CameraSystem(Camera& camera, Vector3 targetPos, Vector2& cameraAngle, float& cameraDistance);
 void DebugRenderSystem(entt::registry& registry);
 
+void UpdatePlayerAnimationState(Physics& phys, ModelRenderer& renderer);
 
 int main(void)
 {
@@ -104,12 +105,7 @@ int main(void)
         auto& playerPhys = registry.get<Physics>(player);
         auto& playerRender = registry.get<ModelRenderer>(player);
 
-        if (!playerPhys.isGrounded)
-            playerRender.currentAnimIndex = 3; // Jump
-        else if (playerPhys.velocity.x != 0 || playerPhys.velocity.z != 0)
-            playerRender.currentAnimIndex = IsKeyDown(KEY_LEFT_SHIFT) ? 6 : 10; // 6 for Run anim, 10 for walk TODO: set defines for animations
-        else
-            playerRender.currentAnimIndex = 2; // idle
+        UpdatePlayerAnimationState(playerPhys, playerRender);
 
         if (IsKeyPressed(KEY_F3))
             debugMod = !debugMod;
