@@ -66,3 +66,7 @@ build/
 vgcore.*
 *.xdv
 .vscode
+
+html
+latex
+doxygenConfigFile
