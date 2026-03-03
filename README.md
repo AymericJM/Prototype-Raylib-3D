@@ -1,6 +1,5 @@
-# Prototype-Raylib-3D
+# RayJump 64
 Trying to create a 3D game with Raylib
-
 
 ## Technical Stack
 
@@ -15,8 +14,8 @@ Trying to create a 3D game with Raylib
 
 ```bash
 # Clone the repository
-git clone <repository-url> Prototype-Raylib
-cd Prototype-Raylib
+git clone <repository-url> RayJump-64
+cd RayJump-64
 
 # Create build directory
 mkdir build && cd build
@@ -28,5 +27,5 @@ cmake .. -DCPM_SOURCE_CACHE=$HOME/.cache/CPM --log-level=STATUS
 make
 
 # You can execute the binarie using these 2 command
-./PrototypeRaylib
+./RayJump64
 ```
